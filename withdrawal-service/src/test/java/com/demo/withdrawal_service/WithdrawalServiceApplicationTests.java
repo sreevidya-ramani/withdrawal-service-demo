@@ -32,13 +32,13 @@ class WithdrawalServiceApplicationTests {
 	@Test
 	void approvesEligibleWithdrawal() throws Exception {
 		when(eligibilityClient.checkEligibility(
-				eq("P1001"), eq("STANDARD"), eq(new BigDecimal("125.00"))))
+				eq("P1001"), eq("PARTIAL"), eq(new BigDecimal("125.00"))))
 				.thenReturn(new EligibilityResponse(true, "Eligible"));
 
 		mockMvc.perform(post("/api/v1/withdrawals")
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
-							{"participantId":"P1001","withdrawalType":"STANDARD","amount":125.00,"status":"PENDING"}
+							{"participantId":"P1001","withdrawalType":"PARTIAL","amount":125.00,"status":"PENDING"}
 							"""))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.status").value("APPROVED"))
@@ -48,17 +48,64 @@ class WithdrawalServiceApplicationTests {
 	@Test
 	void rejectsIneligibleWithdrawal() throws Exception {
 		when(eligibilityClient.checkEligibility(
-				eq("P1002"), eq("EARLY"), eq(new BigDecimal("250.00"))))
+				eq("P1002"), eq("FULL"), eq(new BigDecimal("250.00"))))
 				.thenReturn(new EligibilityResponse(false, "Not eligible"));
 
 		mockMvc.perform(post("/api/v1/withdrawals")
 					.contentType(MediaType.APPLICATION_JSON)
 					.content("""
-							{"participantId":"P1002","withdrawalType":"EARLY","amount":250.00,"status":"PENDING"}
+							{"participantId":"P1002","withdrawalType":"FULL","amount":250.00,"status":"PENDING"}
 							"""))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.status").value("REJECTED"))
 				.andExpect(jsonPath("$.message").value("Withdrawal not allowed"));
+	}
+
+	@Test
+	void refusalResponseMessageMatchesEligibilityReason() throws Exception {
+		String reason = "Participant account is under review and withdrawals are temporarily unavailable.";
+		when(eligibilityClient.checkEligibility(
+				eq("P1006"), eq("PARTIAL"), eq(new BigDecimal("250.00"))))
+				.thenReturn(new EligibilityResponse(false, reason));
+
+		mockMvc.perform(post("/api/v1/withdrawals")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+							{"participantId":"P1006","withdrawalType":"PARTIAL","amount":250.00,"status":"PENDING"}
+							"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.message").value(reason));
+	}
+
+	@Test
+	void refusalResponseStatusIsRejected() throws Exception {
+		when(eligibilityClient.checkEligibility(
+				eq("P1006"), eq("PARTIAL"), eq(new BigDecimal("250.00"))))
+				.thenReturn(new EligibilityResponse(false, "Account review prevents this withdrawal."));
+
+		mockMvc.perform(post("/api/v1/withdrawals")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+							{"participantId":"P1006","withdrawalType":"PARTIAL","amount":250.00,"status":"PENDING"}
+							"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("REJECTED"));
+	}
+
+	@Test
+	void approvedWithdrawalKeepsCurrentStatusAndMessage() throws Exception {
+		when(eligibilityClient.checkEligibility(
+				eq("P1001"), eq("PARTIAL"), eq(new BigDecimal("125.00"))))
+				.thenReturn(new EligibilityResponse(true, "Eligible"));
+
+		mockMvc.perform(post("/api/v1/withdrawals")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""
+							{"participantId":"P1001","withdrawalType":"PARTIAL","amount":125.00,"status":"PENDING"}
+							"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("APPROVED"))
+				.andExpect(jsonPath("$.message").value("Withdrawal submitted"));
 	}
 
 }
